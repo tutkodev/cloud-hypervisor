@@ -832,6 +832,8 @@ impl vm::Vm for KvmVm {
             xsave_size,
             #[cfg(target_arch = "x86_64")]
             has_xcrs: self.check_extension(Cap::Xcrs),
+            #[cfg(target_arch = "x86_64")]
+            has_nested_state: self.check_extension(Cap::NestedState),
             #[cfg(feature = "sev_snp")]
             vm_fd: Arc::clone(&self.fd),
             #[cfg(feature = "sev_snp")]
@@ -1672,6 +1674,8 @@ pub struct KvmVcpu {
     xsave_size: i32,
     #[cfg(target_arch = "x86_64")]
     has_xcrs: bool,
+    #[cfg(target_arch = "x86_64")]
+    has_nested_state: bool,
     #[cfg(feature = "sev_snp")]
     vm_fd: Arc<VmFd>,
     #[cfg(feature = "sev_snp")]
@@ -2913,7 +2917,13 @@ impl cpu::Vcpu for KvmVcpu {
         };
         let lapic_state = self.get_lapic()?;
         let fpu = self.get_fpu()?;
-        let nested_state = self.nested_state()?;
+        // KVM rejects KVM_GET_NESTED_STATE with EINVAL when nested
+        // virtualization is disabled on the host.
+        let nested_state = if self.has_nested_state {
+            self.nested_state()?
+        } else {
+            None
+        };
 
         // Try to get all MSRs based on the list previously retrieved from KVM.
         // If the number of MSRs obtained from GET_MSRS is different from the
@@ -3806,6 +3816,8 @@ mod tests {
             xsave_size: 0,
             #[cfg(target_arch = "x86_64")]
             has_xcrs: false,
+            #[cfg(target_arch = "x86_64")]
+            has_nested_state: false,
             vm_fd,
             memory_slots: slots,
             memory_conversion_handler: Arc::new(OnceLock::new()),
